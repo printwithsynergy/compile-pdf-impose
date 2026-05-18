@@ -2,6 +2,9 @@
 
 Mounts under ``/v1/impose`` from :mod:`compile_pdf.api.main`. Single
 endpoint today: ``POST /v1/impose/apply``.
+
+Pass ``?async=true`` to submit the job to Celery and receive a ``202``
+with a ``job_id`` you can poll at ``GET /v1/jobs/{job_id}``.
 """
 
 from __future__ import annotations
@@ -10,9 +13,10 @@ import base64
 import hashlib
 
 import structlog
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 
+from compile_pdf_core.async_jobs import AsyncJobAccepted, JobStatus, create_job
 from compile_pdf_core.cache import compute_cache_key, hash_canonical_plan
 from compile_pdf_impose.engine import ImposePlanError, apply_plan
 from compile_pdf_impose.layout_schema import ImposePlan
@@ -22,6 +26,7 @@ from compile_pdf_core.retention import (
     persist_if_opted_in,
     resolve_tenant,
 )
+from compile_pdf_core.tasks import task_payload_hash
 from compile_pdf_core.version import (
     CODEX_DOCUMENT_SCHEMA_VERSION_PIN,
     IMPOSE_SCHEMA_VERSION,
@@ -58,9 +63,23 @@ class ImposeApplyResponse(BaseModel):
     compile_version: str = VERSION
 
 
-@router.post("/apply", response_model=ImposeApplyResponse, status_code=status.HTTP_200_OK)
-async def impose_apply(payload: ImposeApplyRequest, request: Request) -> ImposeApplyResponse:
-    """Impose an inline base64-encoded PDF onto sheets per the plan."""
+@router.post(
+    "/apply",
+    response_model=ImposeApplyResponse,
+    status_code=status.HTTP_200_OK,
+    responses={202: {"model": AsyncJobAccepted}},
+)
+async def impose_apply(
+    payload: ImposeApplyRequest,
+    request: Request,
+    async_: bool = Query(False, alias="async"),
+) -> ImposeApplyResponse | AsyncJobAccepted:
+    """Impose an inline base64-encoded PDF onto sheets per the plan.
+
+    Pass ``?async=true`` to enqueue the job on Celery and receive a ``202``
+    ``AsyncJobAccepted`` response. Poll ``GET /v1/jobs/{job_id}`` until the
+    status is ``complete`` or ``failed``.
+    """
     try:
         input_bytes = base64.b64decode(payload.input_pdf_b64, validate=True)
     except (ValueError, TypeError) as exc:
@@ -71,6 +90,28 @@ async def impose_apply(payload: ImposeApplyRequest, request: Request) -> ImposeA
 
     if not input_bytes:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="input is empty")
+
+    if async_:
+        task_payload = {
+            "input_pdf_b64": payload.input_pdf_b64,
+            "plan": payload.plan.model_dump(mode="json"),
+        }
+        ph = task_payload_hash(task_payload)
+        job_id = create_job(kind="impose", payload_hash=ph)
+        from compile_pdf_core.async_tasks import async_wrap_impose
+
+        async_wrap_impose.apply_async(args=[job_id, task_payload])
+        logger.info("impose.apply.async_accepted", job_id=job_id, payload_hash=ph[:16])
+        from fastapi.responses import JSONResponse
+
+        return JSONResponse(  # type: ignore[return-value]
+            status_code=status.HTTP_202_ACCEPTED,
+            content=AsyncJobAccepted(
+                job_id=job_id,
+                status=JobStatus.pending,
+                poll_url=f"/v1/jobs/{job_id}",
+            ).model_dump(),
+        )
 
     input_sha256 = hashlib.sha256(input_bytes).hexdigest()
     plan_sha256 = hash_canonical_plan(payload.plan.model_dump(mode="json"))
