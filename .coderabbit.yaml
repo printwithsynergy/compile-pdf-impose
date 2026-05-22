@@ -21,8 +21,6 @@ reviews:
     - "!**/uv.lock"
     - "!**/poetry.lock"
   path_instructions:
-    - path: "**/*.{ts,tsx,js,jsx}"
-      instructions: "Flag unhandled promises, missing null checks, hardcoded secrets/env vars, and unsafe `any` usage. Skip stylistic preferences — Prettier handles those."
     - path: "**/*.py"
       instructions: "Flag unhandled exceptions, missing type hints on public functions, hardcoded secrets, and SQL injection risks. Skip style — Ruff handles those."
 chat:
