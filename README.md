@@ -6,8 +6,8 @@ Layout solved by `codex_pdf.geom.tile_grid`; this package drops cells via `pikep
 
 ## Install
 
-```
-pip install compile-pdf-impose
+```bash
+uv pip install compile-pdf-impose
 ```
 
 ## Position in the stack
