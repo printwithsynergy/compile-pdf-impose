@@ -2,13 +2,12 @@ name: publish-pypi
 
 # Publishes compile-pdf-impose to PyPI when a v*.*.* tag is pushed.
 #
-# Auth: PyPI Trusted Publishers (OIDC) — no API token in secrets.
-# Configure once at https://pypi.org/manage/account/publishing/ with:
-#   - PyPI project: compile-pdf-impose
-#   - Owner:        printwithsynergy
-#   - Repository:   compile-pdf-impose
-#   - Workflow:     publish-pypi.yml
-#   - Environment:  release
+# Auth: TOKEN — uses the PYPI_TOKEN repo secret for upload authentication.
+# Set the secret at Settings → Secrets → Actions → PYPI_TOKEN with a
+# PyPI API token scoped to the compile-pdf-impose project.
+#
+# The `environment: release` block and `id-token: write` permission are
+# retained (harmless) in case Trusted Publishing is registered later.
 
 on:
   push:
@@ -29,6 +28,7 @@ jobs:
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
         with:
           python-version: "3.12"
+          cache: pip
       - run: pip install --upgrade pip build
       - run: python -m build --sdist --wheel --outdir dist/
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -51,3 +51,5 @@ jobs:
           name: dist
           path: dist/
       - uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # release/v1
+        with:
+          password: ${{ secrets.PYPI_TOKEN }}
