@@ -1,6 +1,6 @@
 [project]
 name = "compile-pdf-impose"
-version = "0.1.0"
+version = "0.1.1"
 description = "CompilePDF impose producer."
 readme = "README.md"
 license = { text = "AGPL-3.0-or-later" }
