@@ -1,0 +1,53 @@
+name: security
+
+# Security-only scan: semgrep SAST + bandit.
+# Does NOT run pytest/mypy/lint — cross-repo parent packages are not
+# installed in CI, so import-dependent tests are out of scope here.
+
+on:
+  push:
+    branches: ["main", "claude/**"]
+  pull_request:
+    branches: ["main"]
+  schedule:
+    # Run weekly to catch newly published CVEs against pinned rules.
+    - cron: "17 3 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  semgrep:
+    name: semgrep SAST
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+        with:
+          python-version: "3.12"
+      - name: Install semgrep
+        run: pip install semgrep
+      - name: Run semgrep (security-audit + secrets + python)
+        run: |
+          semgrep scan --error --quiet \
+            --config p/security-audit \
+            --config p/secrets \
+            --config p/python \
+            src
+
+  bandit:
+    name: bandit SAST
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+        with:
+          python-version: "3.12"
+      - name: Install bandit
+        run: pip install bandit
+      - name: Run bandit (medium severity + confidence)
+        run: bandit -r src --severity-level medium --confidence-level medium

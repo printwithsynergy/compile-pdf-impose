@@ -13,14 +13,8 @@ import base64
 import hashlib
 
 import structlog
-from fastapi import APIRouter, HTTPException, Query, Request, status
-from pydantic import BaseModel, Field
-
 from compile_pdf_core.async_jobs import AsyncJobAccepted, JobStatus, create_job
 from compile_pdf_core.cache import compute_cache_key, hash_canonical_plan
-from compile_pdf_impose.engine import ImposePlanError, apply_plan
-from compile_pdf_impose.layout_schema import ImposePlan
-from compile_pdf_impose.verify import verify_impose
 from compile_pdf_core.retention import (
     parse_consent,
     persist_if_opted_in,
@@ -32,6 +26,12 @@ from compile_pdf_core.version import (
     IMPOSE_SCHEMA_VERSION,
     VERSION,
 )
+from fastapi import APIRouter, HTTPException, Query, Request, status
+from pydantic import BaseModel, Field
+
+from compile_pdf_impose.engine import ImposePlanError, apply_plan
+from compile_pdf_impose.layout_schema import ImposePlan
+from compile_pdf_impose.verify import verify_impose
 
 logger = structlog.get_logger(__name__)
 
