@@ -16,7 +16,6 @@ Codex surface consumed:
 from __future__ import annotations
 
 from codex_pdf.geom import CellPlacement, TileGrid, TileResult, tile_grid
-
 from compile_pdf_core.version import IMPOSE_SCHEMA_VERSION
 
 __all__ = [
