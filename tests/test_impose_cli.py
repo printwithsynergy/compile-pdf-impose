@@ -7,7 +7,6 @@ from pathlib import Path
 
 import pikepdf
 from click.testing import CliRunner
-
 from compile_pdf.cli import cli
 
 

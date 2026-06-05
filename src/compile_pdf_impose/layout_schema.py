@@ -123,18 +123,10 @@ class ExplicitPlacement(BaseModel):
             "lineage so a placed cell can be traced to its source job."
         ),
     )
-    x0_pt: float = Field(
-        ..., description="Lower-left x of the cell box in sheet-space points."
-    )
-    y0_pt: float = Field(
-        ..., description="Lower-left y of the cell box in sheet-space points."
-    )
-    x1_pt: float = Field(
-        ..., description="Upper-right x of the cell box in sheet-space points."
-    )
-    y1_pt: float = Field(
-        ..., description="Upper-right y of the cell box in sheet-space points."
-    )
+    x0_pt: float = Field(..., description="Lower-left x of the cell box in sheet-space points.")
+    y0_pt: float = Field(..., description="Lower-left y of the cell box in sheet-space points.")
+    x1_pt: float = Field(..., description="Upper-right x of the cell box in sheet-space points.")
+    y1_pt: float = Field(..., description="Upper-right y of the cell box in sheet-space points.")
     rotation: float = Field(
         default=0.0,
         description="Cell rotation in degrees, counter-clockwise (PDF convention).",

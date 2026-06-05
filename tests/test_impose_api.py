@@ -4,9 +4,8 @@ from __future__ import annotations
 
 import base64
 
-from fastapi.testclient import TestClient
-
 from compile_pdf.api.main import app
+from fastapi.testclient import TestClient
 
 
 def _b64(data: bytes) -> str:
