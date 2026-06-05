@@ -9,7 +9,14 @@ import pytest
 from pikepdf import Name
 
 from compile_pdf_impose.engine import ImposePlanError, apply_plan
-from compile_pdf_impose.layout_schema import Cell, Gutter, ImposePlan, Sheet
+from compile_pdf_impose.layout_schema import (
+    Cell,
+    ExplicitPlacement,
+    Gutter,
+    ImposePlan,
+    Sheet,
+)
+from compile_pdf_impose.verify import verify_impose
 
 
 def _plan_2x2(**overrides) -> ImposePlan:
@@ -131,3 +138,132 @@ def test_input_with_extra_pages_paginates(four_page_content_pdf: bytes) -> None:
     result = apply_plan(buf.getvalue(), plan)
     assert result.sheets_written == 2
     assert result.input_pages == 5
+
+
+# --- Explicit placements (sift-pdf stagger / gang / nest handoff) --------
+
+
+def _stagger_placements() -> list[ExplicitPlacement]:
+    """Two-row half-drop-x layout: odd row shifted right by half a cell.
+
+    Cell 612x792; row 0 at y=0, row 1 at y=804; odd row x-shifted by 306.
+    """
+    return [
+        ExplicitPlacement(source_ref="job-a", x0_pt=0, y0_pt=0, x1_pt=612, y1_pt=792, row=0, col=0),
+        ExplicitPlacement(
+            source_ref="job-b", x0_pt=624, y0_pt=0, x1_pt=1236, y1_pt=792, row=0, col=1
+        ),
+        ExplicitPlacement(
+            source_ref="job-c", x0_pt=306, y0_pt=804, x1_pt=918, y1_pt=1596, row=1, col=0
+        ),
+        ExplicitPlacement(
+            source_ref="job-d", x0_pt=930, y0_pt=804, x1_pt=1542, y1_pt=1596, row=1, col=1
+        ),
+    ]
+
+
+def _explicit_plan(**overrides) -> ImposePlan:
+    return ImposePlan(
+        sheet=Sheet(width_pt=1782, height_pt=1700),
+        cell=Cell(width_pt=612, height_pt=792),
+        explicit_placements=_stagger_placements(),
+        stagger_mode="half-drop-x",
+        **overrides,
+    )
+
+
+def test_explicit_placements_yields_one_cell_per_placement(
+    four_page_content_pdf: bytes,
+) -> None:
+    """explicit_placements bypasses the grid solver: cell count == placements."""
+    plan = _explicit_plan()
+    result = apply_plan(four_page_content_pdf, plan)
+    assert result.cells_per_sheet == 4
+    assert result.sheets_written == 1
+
+
+def test_explicit_placements_positions_match_content_stream(
+    four_page_content_pdf: bytes,
+) -> None:
+    """POST-CONDITION: each placement's lower-left anchor appears as the
+    translation (e, f) of a ``cm`` op in the emitted sheet content stream.
+
+    For an unrotated, unflipped cell the placement matrix is
+    ``1 0 0 1 x0 y0`` — so every placement's (x0_pt, y0_pt) must show up
+    verbatim as a ``cm`` translation."""
+    plan = _explicit_plan()
+    result = apply_plan(four_page_content_pdf, plan)
+    out = pikepdf.open(io.BytesIO(result.output_bytes))
+    try:
+        raw = bytes(out.pages[0].obj[Name.Contents].read_bytes()).decode("latin-1")
+    finally:
+        out.close()
+    for ep in _stagger_placements():
+        anchor = f"1.0000 0.0000 0.0000 1.0000 {ep.x0_pt:.4f} {ep.y0_pt:.4f} cm"
+        assert anchor in raw, f"missing placement anchor for {ep.source_ref}: {anchor}"
+
+
+def test_explicit_placements_pass_post_condition_verify(
+    four_page_content_pdf: bytes,
+) -> None:
+    """Three-layer verification holds for an explicit-placement plan:
+    schema + determinism + nothing-else-touched + cell-extract round-trip."""
+    plan = _explicit_plan()
+    result = apply_plan(four_page_content_pdf, plan)
+    verify = verify_impose(
+        input_bytes=four_page_content_pdf,
+        output_bytes=result.output_bytes,
+        plan=plan,
+        expected_sheets=result.sheets_written,
+        determinism_replay=True,
+    )
+    assert verify.passed, verify.failures
+
+
+def test_explicit_placements_are_deterministic(four_page_content_pdf: bytes) -> None:
+    plan = _explicit_plan()
+    a = apply_plan(four_page_content_pdf, plan)
+    b = apply_plan(four_page_content_pdf, plan)
+    assert a.output_bytes == b.output_bytes
+
+
+@pytest.mark.parametrize(
+    ("x0_pt", "y0_pt", "x1_pt", "y1_pt"),
+    [
+        (0, 0, 9999, 792),
+        (-1000, 0, -500, 792),
+        (0, -800, 612, -100),
+    ],
+)
+def test_explicit_placements_beyond_sheet_rejected(
+    two_page_content_pdf: bytes,
+    x0_pt: float,
+    y0_pt: float,
+    x1_pt: float,
+    y1_pt: float,
+) -> None:
+    plan = ImposePlan(
+        sheet=Sheet(width_pt=612, height_pt=792),
+        cell=Cell(width_pt=612, height_pt=792),
+        explicit_placements=[
+            ExplicitPlacement(
+                source_ref="oversize",
+                x0_pt=x0_pt,
+                y0_pt=y0_pt,
+                x1_pt=x1_pt,
+                y1_pt=y1_pt,
+            ),
+        ],
+    )
+    with pytest.raises(ImposePlanError, match="beyond the sheet"):
+        apply_plan(two_page_content_pdf, plan)
+
+
+def test_empty_explicit_placements_rejected(two_page_content_pdf: bytes) -> None:
+    plan = ImposePlan(
+        sheet=Sheet(width_pt=612, height_pt=792),
+        cell=Cell(width_pt=612, height_pt=792),
+        explicit_placements=[],
+    )
+    with pytest.raises(ImposePlanError, match="empty"):
+        apply_plan(two_page_content_pdf, plan)

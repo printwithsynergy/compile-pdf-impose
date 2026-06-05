@@ -24,6 +24,23 @@ exactly (``none`` / ``trim`` / ``extend``). The aspirational
 ``overlap`` / ``mirror`` values from earlier docs are unsupported in
 this v1 schema; document changes will land alongside the upstream
 codex extension if they ship.
+
+Explicit placements (additive, schema 1.1.0):
+
+* ``explicit_placements`` — when set, the engine bypasses
+  ``codex_pdf.geom.tile_grid`` and drops each cell at the
+  solver-provided sheet-space box. This is the handoff seam for
+  sift-pdf's stagger / gang / nest tiers, whose layouts are *not*
+  uniform grids and so cannot be expressed via the grid knobs.
+  sift-pdf computes the positions (it owns the solver); Compile only
+  writes them. This keeps the consume-surface boundary intact — Compile
+  still does no *grid* layout math; it places pre-solved boxes.
+* ``stagger_mode`` — first-class record of the solver's stagger intent
+  (half-drop / brick / custom) so it survives through the writer layer
+  into lineage, rather than being lost once positions are flattened
+  into ``explicit_placements`` coordinates. Informational for the
+  engine (placements already carry the resolved coordinates); recorded
+  for downstream consumers and audit.
 """
 
 from __future__ import annotations
@@ -80,6 +97,54 @@ PageMapping = Literal["sequential", "repeat"]
 BackSideMode = Literal["none", "work-and-turn", "work-and-tumble"]
 BleedHandling = Literal["none", "trim", "extend"]
 CellRotation = Literal[0, 90, 180, 270]
+StaggerMode = Literal["none", "half-drop-x", "half-drop-y", "custom"]
+
+
+class ExplicitPlacement(BaseModel):
+    """One pre-solved cell position in sheet space.
+
+    Emitted by sift-pdf's solver (stagger / gang / nest tiers) and
+    consumed by the impose engine when a uniform grid can't express the
+    layout. The box (``x0_pt``/``y0_pt``/``x1_pt``/``y1_pt``) plus
+    ``rotation`` + ``flip_h`` / ``flip_v`` mirror codex's ``CellPlacement``
+    vocabulary so the engine's per-cell transform path is identical to
+    the grid path. Field names + types match sift-pdf's handoff dict
+    (``sift_pdf.handoff.compile._explicit_plan``) exactly so the dict
+    validates without translation.
+    """
+
+    model_config = {"extra": "forbid"}
+
+    source_ref: str = Field(
+        ...,
+        description=(
+            "Solver back-reference — sift's Job.id, optionally with a "
+            "':pageIdx' suffix. Informational for the engine; carried into "
+            "lineage so a placed cell can be traced to its source job."
+        ),
+    )
+    x0_pt: float = Field(..., description="Lower-left x of the cell box in sheet-space points.")
+    y0_pt: float = Field(..., description="Lower-left y of the cell box in sheet-space points.")
+    x1_pt: float = Field(..., description="Upper-right x of the cell box in sheet-space points.")
+    y1_pt: float = Field(..., description="Upper-right y of the cell box in sheet-space points.")
+    rotation: float = Field(
+        default=0.0,
+        description="Cell rotation in degrees, counter-clockwise (PDF convention).",
+    )
+    flip_h: bool = Field(
+        default=False, description="Mirror the cell content about its vertical axis."
+    )
+    flip_v: bool = Field(
+        default=False, description="Mirror the cell content about its horizontal axis."
+    )
+    row: int | None = Field(
+        default=None,
+        description="Grid row index, informational. Optional — sift omits it for nest layouts.",
+    )
+    col: int | None = Field(
+        default=None,
+        description="Grid column index, informational. Optional — sift omits it for nest layouts.",
+    )
 
 
 class ImposePlan(BaseModel):
@@ -102,6 +167,29 @@ class ImposePlan(BaseModel):
     bleed_handling: BleedHandling = "none"
     page_mapping: PageMapping = "sequential"
     back_side: BackSideMode = "none"
+    explicit_placements: list[ExplicitPlacement] | None = Field(
+        default=None,
+        description=(
+            "Pre-solved sheet-space cell positions from an upstream solver "
+            "(sift-pdf stagger / gang / nest). When present, the engine places "
+            "cells at these exact boxes instead of computing a uniform grid via "
+            "``codex_pdf.geom.tile_grid``; the grid knobs (``gutter``, "
+            "``cell_rotation``, ``flip_per_row``) are ignored. ``None`` (the "
+            "default) preserves the prior grid behaviour exactly — this field "
+            "is purely additive."
+        ),
+    )
+    stagger_mode: StaggerMode = Field(
+        default="none",
+        description=(
+            "Records the solver's stagger intent (half-drop / brick / custom) "
+            "so it survives into lineage. Informational for the engine: when "
+            "``explicit_placements`` is set the resolved coordinates already "
+            "carry the offset; this field preserves the *semantic* intent that "
+            "would otherwise be lost once positions are flattened. Defaults to "
+            "``none`` (uniform grid)."
+        ),
+    )
 
 
 class ImposePlanRoot(RootModel[ImposePlan]):
@@ -122,11 +210,13 @@ __all__ = [
     "BleedHandling",
     "Cell",
     "CellRotation",
+    "ExplicitPlacement",
     "Gutter",
     "ImposePlan",
     "ImposePlanRoot",
     "MarksZoneSpec",
     "PageMapping",
     "Sheet",
+    "StaggerMode",
     "impose_plan_json_schema",
 ]
