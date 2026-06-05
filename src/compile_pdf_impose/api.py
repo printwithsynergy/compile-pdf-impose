@@ -23,12 +23,14 @@ from compile_pdf_core.retention import (
 from compile_pdf_core.tasks import task_payload_hash
 from compile_pdf_core.version import (
     CODEX_DOCUMENT_SCHEMA_VERSION_PIN,
-    IMPOSE_SCHEMA_VERSION,
     VERSION,
 )
 from fastapi import APIRouter, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 
+# IMPOSE_SCHEMA_VERSION is pinned locally (1.1.0, additive explicit_placements)
+# rather than read from compile_pdf_core, which still ships 1.0.0.
+from compile_pdf_impose import IMPOSE_SCHEMA_VERSION
 from compile_pdf_impose.engine import ImposePlanError, apply_plan
 from compile_pdf_impose.layout_schema import ImposePlan
 from compile_pdf_impose.verify import verify_impose

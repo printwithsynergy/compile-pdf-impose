@@ -34,7 +34,7 @@ import math
 from dataclasses import dataclass
 
 import pikepdf
-from codex_pdf.geom import Box, MarksZone, TileGrid, TileResult, tile_grid
+from codex_pdf.geom import Box, CellPlacement, MarksZone, TileGrid, TileResult, tile_grid
 from pikepdf import Array, Dictionary, Name, Object, Pdf
 
 from compile_pdf_impose.layout_schema import ImposePlan
@@ -125,12 +125,23 @@ def apply_plan(input_bytes: bytes, plan: ImposePlan) -> ImposeResult:
 
 
 def _solve_layout(plan: ImposePlan) -> TileResult:
-    """Forward the plan's geometry knobs to ``codex.tile_grid``.
+    """Resolve the per-cell placement solution for ``plan``.
+
+    Two paths:
+
+    * ``explicit_placements`` set — use the solver-provided boxes
+      directly (sift-pdf stagger / gang / nest handoff). Compile does no
+      grid math here; it wraps the pre-solved coordinates in codex's
+      ``CellPlacement`` vocabulary so the downstream emit path is shared
+      with the grid path.
+    * otherwise — forward the plan's geometry knobs to ``codex.tile_grid``.
 
     Codex raises ``ValueError`` when the geometry is unsatisfiable
     (sheet smaller than cell, negative gutters, etc.) — re-raise as
     :class:`ImposePlanError` so callers see a single error type.
     """
+    if plan.explicit_placements is not None:
+        return _explicit_layout(plan)
     grid = TileGrid(
         sheet=Box(0.0, 0.0, plan.sheet.width_pt, plan.sheet.height_pt),
         cell_width=plan.cell.width_pt,
@@ -152,6 +163,75 @@ def _solve_layout(plan: ImposePlan) -> TileResult:
         return tile_grid(grid)
     except ValueError as exc:
         raise ImposePlanError(f"codex tile_grid rejected layout: {exc}") from exc
+
+
+def _explicit_layout(plan: ImposePlan) -> TileResult:
+    """Build a :class:`TileResult` from solver-provided explicit placements.
+
+    Each :class:`ExplicitPlacement` becomes a codex ``CellPlacement`` so
+    the cell-emit + post-condition pipeline is identical to the grid
+    path. Compile performs no layout solving here — it wraps coordinates
+    the upstream solver already computed (sift-pdf stagger / gang / nest).
+    """
+    placements = plan.explicit_placements or []
+    if not placements:
+        raise ImposePlanError(
+            "explicit_placements is set but empty — no cells to place "
+            "(omit the field for an empty plan, or provide at least one placement)"
+        )
+
+    cells: list[CellPlacement] = []
+    union_x0 = union_y0 = float("inf")
+    union_x1 = union_y1 = float("-inf")
+    for ep in placements:
+        if ep.x1_pt <= ep.x0_pt or ep.y1_pt <= ep.y0_pt:
+            raise ImposePlanError(
+                f"explicit placement {ep.source_ref!r} has a non-positive box "
+                f"({ep.x0_pt},{ep.y0_pt})-({ep.x1_pt},{ep.y1_pt})"
+            )
+        box = Box(ep.x0_pt, ep.y0_pt, ep.x1_pt, ep.y1_pt)
+        cells.append(
+            CellPlacement(
+                box=box,
+                rotation=ep.rotation,
+                flip_h=ep.flip_h,
+                flip_v=ep.flip_v,
+                row=ep.row if ep.row is not None else 0,
+                col=ep.col if ep.col is not None else 0,
+            )
+        )
+        union_x0 = min(union_x0, ep.x0_pt)
+        union_y0 = min(union_y0, ep.y0_pt)
+        union_x1 = max(union_x1, ep.x1_pt)
+        union_y1 = max(union_y1, ep.y1_pt)
+
+    sheet = Box(0.0, 0.0, plan.sheet.width_pt, plan.sheet.height_pt)
+    if union_x1 > plan.sheet.width_pt + 1e-6 or union_y1 > plan.sheet.height_pt + 1e-6:
+        raise ImposePlanError(
+            "explicit placements extend beyond the sheet "
+            f"(union x1={union_x1}, y1={union_y1}; "
+            f"sheet={plan.sheet.width_pt}x{plan.sheet.height_pt})"
+        )
+
+    used = Box(union_x0, union_y0, union_x1, union_y1)
+    return TileResult(
+        sheet=sheet,
+        cells=tuple(cells),
+        rows=1,
+        cols=len(cells),
+        used=used,
+        waste=sheet,
+        cell_width=plan.cell.width_pt,
+        cell_height=plan.cell.height_pt,
+        gutter_x=plan.gutter.x_pt,
+        gutter_y=plan.gutter.y_pt,
+        marks_zone=MarksZone(
+            top=plan.marks_zone.top_pt,
+            right=plan.marks_zone.right_pt,
+            bottom=plan.marks_zone.bottom_pt,
+            left=plan.marks_zone.left_pt,
+        ),
+    )
 
 
 # --- Form XObject embedding ---------------------------------------------
@@ -232,6 +312,10 @@ def _emit_sheet(
             resources_xobjects[name] = xobjects[page_idx]
             used_indices.append(page_idx)
 
+        # Use the cell box's own dimensions so explicit (non-grid)
+        # placements with varying sizes anchor correctly. For grid cells
+        # the box dimensions equal ``plan.cell`` exactly, so this is
+        # byte-identical to the prior behaviour.
         body_parts.append(
             _cell_op(
                 cell_box=anchor_box,
@@ -239,8 +323,8 @@ def _emit_sheet(
                 flip_h=cell_pos.flip_h,
                 flip_v=cell_pos.flip_v,
                 back_mirror=mirror_extra,
-                cell_w=plan.cell.width_pt,
-                cell_h=plan.cell.height_pt,
+                cell_w=cell_pos.box.x1 - cell_pos.box.x0,
+                cell_h=cell_pos.box.y1 - cell_pos.box.y0,
                 xobject_name=name,
             )
         )
