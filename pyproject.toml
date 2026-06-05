@@ -18,7 +18,7 @@ classifiers = [
 
 dependencies = [
   "compile-pdf-core>=0.1.0,<1.0",
-  "codex-pdf>=1.15.0,<2.0",
+  "codex-pdf>=1.21.1,<2.0",
   "fastapi>=0.110",
   "pikepdf>=8.13",
   "pydantic>=2.6",
