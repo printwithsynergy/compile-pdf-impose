@@ -206,10 +206,16 @@ def _explicit_layout(plan: ImposePlan) -> TileResult:
         union_y1 = max(union_y1, ep.y1_pt)
 
     sheet = Box(0.0, 0.0, plan.sheet.width_pt, plan.sheet.height_pt)
-    if union_x1 > plan.sheet.width_pt + 1e-6 or union_y1 > plan.sheet.height_pt + 1e-6:
+    tolerance = 1e-6
+    if (
+        union_x0 < -tolerance
+        or union_y0 < -tolerance
+        or union_x1 > plan.sheet.width_pt + tolerance
+        or union_y1 > plan.sheet.height_pt + tolerance
+    ):
         raise ImposePlanError(
             "explicit placements extend beyond the sheet "
-            f"(union x1={union_x1}, y1={union_y1}; "
+            f"(union=({union_x0},{union_y0})-({union_x1},{union_y1}); "
             f"sheet={plan.sheet.width_pt}x{plan.sheet.height_pt})"
         )
 

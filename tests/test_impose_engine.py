@@ -227,13 +227,31 @@ def test_explicit_placements_are_deterministic(four_page_content_pdf: bytes) -> 
     assert a.output_bytes == b.output_bytes
 
 
-def test_explicit_placements_beyond_sheet_rejected(two_page_content_pdf: bytes) -> None:
+@pytest.mark.parametrize(
+    ("x0_pt", "y0_pt", "x1_pt", "y1_pt"),
+    [
+        (0, 0, 9999, 792),
+        (-1000, 0, -500, 792),
+        (0, -800, 612, -100),
+    ],
+)
+def test_explicit_placements_beyond_sheet_rejected(
+    two_page_content_pdf: bytes,
+    x0_pt: float,
+    y0_pt: float,
+    x1_pt: float,
+    y1_pt: float,
+) -> None:
     plan = ImposePlan(
         sheet=Sheet(width_pt=612, height_pt=792),
         cell=Cell(width_pt=612, height_pt=792),
         explicit_placements=[
             ExplicitPlacement(
-                source_ref="oversize", x0_pt=0, y0_pt=0, x1_pt=9999, y1_pt=792
+                source_ref="oversize",
+                x0_pt=x0_pt,
+                y0_pt=y0_pt,
+                x1_pt=x1_pt,
+                y1_pt=y1_pt,
             ),
         ],
     )
