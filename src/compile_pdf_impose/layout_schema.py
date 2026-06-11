@@ -167,6 +167,25 @@ class ImposePlan(BaseModel):
     bleed_handling: BleedHandling = "none"
     page_mapping: PageMapping = "sequential"
     back_side: BackSideMode = "none"
+    registration_marks: bool = Field(
+        default=False,
+        description=(
+            "When true, place four-color registration targets in the reserved "
+            "``marks_zone`` corners. Wave 1 plumb-only — the engine accepts "
+            "the field but mark rendering ships in a follow-up once the "
+            "upstream codex marks API stabilizes; until then the toggle "
+            "round-trips through the policy without producing visible output."
+        ),
+    )
+    crop_marks: bool = Field(
+        default=False,
+        description=(
+            "When true, place crop marks at the per-cell trim corners. "
+            "Same plumb-only semantics as ``registration_marks``: the schema "
+            "carries the operator's intent end-to-end for editor UIs and "
+            "lineage records, with engine rendering deferred to a follow-up."
+        ),
+    )
     explicit_placements: list[ExplicitPlacement] | None = Field(
         default=None,
         description=(
