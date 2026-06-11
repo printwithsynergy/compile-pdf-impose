@@ -4,6 +4,13 @@ All notable changes to compile-pdf-impose are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] - 2026-06-11
+
+### Fixed
+
+- Ship `py.typed` (PEP 561) so strict-mypy consumers (compile-pdf) resolve this
+  producer's types instead of treating the package as untyped.
+
 ## [0.1.1] - 2026-06-04
 
 ### Security
